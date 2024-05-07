@@ -136,7 +136,6 @@ fn workspace_info(pkg_graph: &PackageGraph) -> Result<WorkspaceInfo> {
         cargo_profiles,
 
         warnings,
-        build_command: None,
     })
 }
 
@@ -259,6 +258,7 @@ fn package_info(_workspace_root: &Utf8Path, package: &PackageMetadata) -> Result
         cstaticlibs,
         cargo_metadata_table,
         cargo_package_id,
+        build_command: None,
     };
 
     // Find files we might want to auto-include

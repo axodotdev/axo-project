@@ -134,6 +134,7 @@ fn read_workspace(manifest_path: &Utf8Path) -> Result<WorkspaceInfo> {
         cargo_metadata_table: None,
         #[cfg(feature = "cargo-projects")]
         cargo_package_id: None,
+        build_command: None,
     };
     crate::merge_auto_includes(&mut info, &root_auto_includes);
 
@@ -148,7 +149,6 @@ fn read_workspace(manifest_path: &Utf8Path) -> Result<WorkspaceInfo> {
         repository_url,
         root_auto_includes,
         warnings: vec![],
-        build_command: None,
         #[cfg(feature = "cargo-projects")]
         cargo_metadata_table: None,
         #[cfg(feature = "cargo-projects")]
