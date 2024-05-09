@@ -63,8 +63,6 @@ fn package_graph(start_dir: &Utf8Path) -> Result<PackageGraph> {
 fn workspace_info(pkg_graph: &PackageGraph) -> Result<WorkspaceInfo> {
     let workspace = pkg_graph.workspace();
     let members = pkg_graph.resolve_workspace();
-    let mut warnings = vec![];
-
     let manifest_path = workspace.root().join("Cargo.toml");
     // I originally had this as a proper Error but honestly this would be MADNESS and
     // I want someone to tell me about this if they ever encounter it, so blow everything up
@@ -79,45 +77,61 @@ fn workspace_info(pkg_graph: &PackageGraph) -> Result<WorkspaceInfo> {
     let workspace_root = workspace.root();
     let root_auto_includes = crate::find_auto_includes(workspace_root)?;
 
-    let mut repo_url_conflicted = false;
     let mut repo_url = None::<String>;
     let mut repo_url_origin = None::<Utf8PathBuf>;
+    let mut repo_url_origin_is_lib = false;
     let mut all_package_info = vec![];
+    let mut repo_url_warnings = vec![];
     for package in members.packages(DependencyDirection::Forward) {
         let mut info = package_info(workspace_root, &package)?;
-
+        let is_lib = info.binaries.is_empty();
         // Apply root workspace's auto-includes
         crate::merge_auto_includes(&mut info, &root_auto_includes);
 
         // Try to find repo URL consensus
-        if !repo_url_conflicted {
-            if let Some(new_url) = &info.repository_url {
-                // Normalize away trailing `/` stuff before comparing
-                let mut normalized_new_url = new_url.clone();
-                if normalized_new_url.ends_with('/') {
-                    normalized_new_url.pop();
-                }
-                if let Some(cur_url) = &repo_url {
-                    if &normalized_new_url == cur_url {
-                        // great! consensus!
-                    } else {
-                        warnings.push(AxoprojectError::InconsistentRepositoryKey {
+        if let Some(new_url) = &info.repository_url {
+            // Normalize away trailing `/` stuff before comparing
+            let mut normalized_new_url = new_url.clone();
+            if normalized_new_url.ends_with('/') {
+                normalized_new_url.pop();
+            }
+            if let Some(cur_url) = &repo_url {
+                if &normalized_new_url == cur_url {
+                    // great! consensus!
+                } else {
+                    // If the two URLs are of the same quality
+                    // (both from bins or both from libs), buffer up a warning
+                    if repo_url_origin_is_lib == is_lib {
+                        repo_url_warnings.push(AxoprojectError::InconsistentRepositoryKey {
                             file1: repo_url_origin.as_ref().unwrap().to_owned(),
                             url1: cur_url.clone(),
                             file2: info.manifest_path.clone(),
-                            url2: normalized_new_url,
+                            url2: normalized_new_url.clone(),
                         });
-                        repo_url_conflicted = true;
-                        repo_url = None;
+                    // If we're a binary and the old value is from a library,
+                    // we win. Also, clear any warnings that might have occured
+                    // from library-library conflicts.
+                    } else if repo_url_origin_is_lib && !is_lib {
+                        repo_url_warnings.clear();
+                        repo_url = Some(normalized_new_url);
+                        repo_url_origin = Some(info.manifest_path.clone());
+                        repo_url_origin_is_lib = is_lib;
                     }
-                } else {
-                    repo_url = Some(normalized_new_url);
-                    repo_url_origin = Some(info.manifest_path.clone());
+                    // Otherwise we're a libary, but the value was set
+                    // by a binary. Too bad so sad, the binary wins and we get ignored.
                 }
+            } else {
+                repo_url = Some(normalized_new_url);
+                repo_url_origin = Some(info.manifest_path.clone());
+                repo_url_origin_is_lib = is_lib;
             }
         }
 
         all_package_info.push(info);
+    }
+    // If we got to the end with lingering warnings, discard the repo_url
+    if !repo_url_warnings.is_empty() {
+        repo_url = None;
     }
 
     let target_dir = workspace.target_directory().to_owned();
@@ -135,7 +149,7 @@ fn workspace_info(pkg_graph: &PackageGraph) -> Result<WorkspaceInfo> {
         cargo_metadata_table,
         cargo_profiles,
 
-        warnings,
+        warnings: repo_url_warnings,
         build_command: None,
     })
 }
