@@ -1,3 +1,8 @@
+# ⚠️ Project moved ⚠️
+
+
+This project has been moved into the [cargo-dist repository](https://github.com/axodotdev/cargo-dist/tree/main/axoproject). Further development will occur there.
+
 # axoproject
 
 [![crates.io](https://img.shields.io/crates/v/axoproject.svg)](https://crates.io/crates/axoproject)
