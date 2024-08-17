@@ -148,8 +148,6 @@ pub struct WorkspaceInfo {
     pub root_auto_includes: AutoIncludes,
     /// Non-fatal issues that were encountered and should probably be reported
     pub warnings: Vec<AxoprojectError>,
-    /// Build command to run for this workspace; not required for cargo
-    pub build_command: Option<Vec<String>>,
     /// Raw cargo `[workspace.metadata]` table
     #[cfg(feature = "cargo-projects")]
     pub cargo_metadata_table: Option<serde_json::Value>,
@@ -300,6 +298,8 @@ pub struct PackageInfo {
     /// A unique id used by Cargo to refer to the package
     #[cfg(feature = "cargo-projects")]
     pub cargo_package_id: Option<PackageId>,
+    /// Build command to run for this workspace; not required for cargo
+    pub build_command: Option<Vec<String>>,
 }
 
 impl PackageInfo {

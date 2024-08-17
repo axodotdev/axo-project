@@ -122,4 +122,20 @@ pub enum AxoprojectError {
         /// Version we were looking for
         version: Version,
     },
+
+    /// Root dist.toml contains no expected keys
+    #[error("Root dist.toml at {path} is malformed.")]
+    #[diagnostic(help("We expected either a [workspace] or [package] section in the root dist.toml file, but found neither."))]
+    DistTomlMalformedError {
+        /// Path ofthe file
+        path: Utf8PathBuf,
+    },
+
+    /// Loading a package-specific dist.toml with no root \[package\] element
+    #[error("Couldn't find a [package] section in {path}.")]
+    #[diagnostic(help("We expected this dist.toml to belong to a package."))]
+    PackageMissingError {
+        /// Path ofthe file
+        path: Utf8PathBuf,
+    },
 }

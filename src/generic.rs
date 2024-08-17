@@ -4,11 +4,29 @@ use axoasset::SourceFile;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserialize;
 
-use crate::{PackageInfo, Result, Version, WorkspaceInfo, WorkspaceSearch};
+use crate::{
+    errors::AxoprojectError, PackageInfo, Result, Version, WorkspaceInfo, WorkspaceSearch,
+};
 
 #[derive(Deserialize)]
 struct Manifest {
-    package: Package,
+    workspace: Option<Workspace>,
+    package: Option<Package>,
+}
+
+impl Manifest {
+    fn workspace_members(&self) -> Option<Vec<String>> {
+        if let Some(workspace) = &self.workspace {
+            workspace.members.as_ref().map(|members| members.to_owned())
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct Workspace {
+    members: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -55,15 +73,42 @@ pub fn get_workspace(start_dir: &Utf8Path, clamp_to_dir: Option<&Utf8Path>) -> W
 
 fn workspace_from(manifest_path: &Utf8Path) -> Result<WorkspaceInfo> {
     let workspace_dir = manifest_path.parent().unwrap().to_path_buf();
-    let root_auto_includes = crate::find_auto_includes(&workspace_dir)?;
 
-    let manifest: Manifest = load_root_dist_toml(manifest_path)?;
-    let package = manifest.package;
+    let manifest = load_root_dist_toml(manifest_path)?;
+    // If this is a workspace, read its members and map those entries
+    // to expected paths on disk
+    let expected_paths = if let Some(members) = manifest.workspace_members() {
+        members
+            .iter()
+            .map(|name| workspace_dir.join(name))
+            .map(Utf8PathBuf::from)
+            .collect()
+    // If this *isn't* a workspace, the root is the only app
+    } else if manifest.package.is_some() {
+        vec![workspace_dir.to_path_buf()]
+    } else {
+        return Err(AxoprojectError::DistTomlMalformedError {
+            path: manifest_path.to_path_buf(),
+        });
+    };
+
+    workspace_info(manifest_path, &workspace_dir, &expected_paths)
+}
+
+fn package_info(manifest_root: &Utf8PathBuf) -> Result<PackageInfo> {
+    let manifest_path = manifest_root.join("dist.toml");
+    let manifest = load_root_dist_toml(&manifest_path)?;
+
+    let package = if let Some(package) = manifest.package {
+        package
+    } else {
+        return Err(AxoprojectError::PackageMissingError {
+            path: manifest_path,
+        });
+    };
     let version = package.version.map(Version::Generic);
 
-    let manifest_path = manifest_path.to_path_buf();
-
-    let package_info = PackageInfo {
+    Ok(PackageInfo {
         manifest_path: manifest_path.clone(),
         package_root: manifest_path.clone(),
         name: package.name,
@@ -86,18 +131,36 @@ fn workspace_from(manifest_path: &Utf8Path) -> Result<WorkspaceInfo> {
         cargo_metadata_table: None,
         #[cfg(feature = "cargo-projects")]
         cargo_package_id: None,
-    };
+        build_command: Some(package.build_command),
+    })
+}
+
+fn workspace_info(
+    manifest_path: &Utf8Path,
+    workspace_dir: &Utf8PathBuf,
+    expected_paths: &[Utf8PathBuf],
+) -> Result<WorkspaceInfo> {
+    let root_auto_includes = crate::find_auto_includes(workspace_dir)?;
+
+    let package_info = expected_paths
+        .iter()
+        .map(package_info)
+        .collect::<Result<Vec<PackageInfo>>>()?;
+
+    let repository_url = package_info
+        .first()
+        .map(|p| p.repository_url.to_owned())
+        .unwrap_or(None);
 
     Ok(WorkspaceInfo {
         kind: crate::WorkspaceKind::Generic,
         target_dir: workspace_dir.join("target"),
-        workspace_dir,
-        package_info: vec![package_info],
-        manifest_path,
-        repository_url: package.repository,
+        workspace_dir: workspace_dir.to_owned(),
+        package_info,
+        manifest_path: manifest_path.to_owned(),
+        repository_url,
         root_auto_includes,
         warnings: vec![],
-        build_command: Some(package.build_command),
         #[cfg(feature = "cargo-projects")]
         cargo_metadata_table: None,
         #[cfg(feature = "cargo-projects")]
